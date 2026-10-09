@@ -11,6 +11,9 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import br.edu.unifaj.cc.mobile.logincomnavegacao.R;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.adapter.MenuHomeAdapter;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.data.ApiRepository;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.data.Perfil;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.data.RepositoryCallback;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.model.user.Doador;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.util.AutoFitGridLayoutManager;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.util.PrefsManager;
@@ -33,6 +36,7 @@ public class HomeActivity extends BaseActivity {
     private View cardPerfil;
     private Button btnSair;
     private PrefsManager prefsManager;
+    private final ApiRepository api = ApiRepository.getInstance();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -51,14 +55,9 @@ public class HomeActivity extends BaseActivity {
         cardPerfil = findViewById(R.id.cardPerfil);
         btnSair = findViewById(R.id.btnSair);
 
-        Doador doador = prefsManager.getDoador();
-        if (doador != null) {
-            txtNomeUsuario.setText(doador.getNome());
-            String tipoCompleto = doador.getTipoCompleto();
-            if (tipoCompleto != null) {
-                txtTipoSanguineo.setText(tipoCompleto);
-            }
-        }
+        // Mostra o cache na hora e atualiza com o perfil do backend em seguida.
+        mostrarDoador(prefsManager.getDoador());
+        carregarPerfil();
 
         cardPerfil.setOnClickListener(v -> startActivity(new Intent(this, PerfilActivity.class)));
 
@@ -71,6 +70,45 @@ public class HomeActivity extends BaseActivity {
             Toast.makeText(this, "Logout realizado", Toast.LENGTH_SHORT).show();
             irParaLogin();
         });
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        carregarPerfil();
+    }
+
+    private void carregarPerfil() {
+        String cpf = prefsManager.getCpfLogado();
+        if (cpf == null) {
+            return;
+        }
+        api.carregarPerfil(cpf, new RepositoryCallback<Perfil>() {
+            @Override
+            public void onSuccess(Perfil perfil) {
+                if (isFinishing() || perfil.getDoador() == null) {
+                    return;
+                }
+                prefsManager.salvarDoador(perfil.getDoador());
+                mostrarDoador(perfil.getDoador());
+            }
+
+            @Override
+            public void onError(String mensagem) {
+                // Home continua com o cache; erro de rede não bloqueia a navegação.
+            }
+        });
+    }
+
+    private void mostrarDoador(Doador doador) {
+        if (doador == null) {
+            return;
+        }
+        txtNomeUsuario.setText(doador.getNome());
+        String tipoCompleto = doador.getTipoCompleto();
+        if (tipoCompleto != null) {
+            txtTipoSanguineo.setText(tipoCompleto);
+        }
     }
 
     private MenuHomeAdapter.Item[] menuItens() {

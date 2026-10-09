@@ -7,6 +7,8 @@ import android.widget.Toast;
 import com.google.android.material.textfield.TextInputEditText;
 
 import br.edu.unifaj.cc.mobile.logincomnavegacao.R;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.data.ApiRepository;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.data.RepositoryCallback;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.model.user.Doador;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.util.PrefsManager;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.util.ValidacaoUtils;
@@ -14,13 +16,9 @@ import br.edu.unifaj.cc.mobile.logincomnavegacao.util.ValidacaoUtils;
 /**
  * Edição do perfil: nome, email e senha.
  *
- * CPF e tipo sanguíneo ficam de fora de propósito. O CPF é a chave que associa o
- * doador aos agendamentos, então trocá-lo esconderia o histórico; o tipo
- * sanguíneo vem do cadastro. Por isso o doador é alterado no lugar - assim
- * salvarDoador preserva os campos que não são editáveis.
- *
- * A senha é opcional: se os dois campos de senha ficarem vazios, a atual é
- * mantida. Preencher só um dos dois é erro, e trocar exige a senha atual.
+ * CPF e tipo sanguíneo ficam de fora de propósito: são imutáveis no backend. A
+ * senha é opcional: se os dois campos ficarem vazios, a atual é mantida. Trocar
+ * a senha exige a senha atual, validada pelo próprio servidor.
  */
 public class EditarPerfilActivity extends BaseActivity {
 
@@ -30,6 +28,8 @@ public class EditarPerfilActivity extends BaseActivity {
     private TextInputEditText editNovaSenha;
     private TextView txtTipoSanguineo;
     private PrefsManager prefsManager;
+    private final ApiRepository api = ApiRepository.getInstance();
+    private String cpfDoador;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -44,8 +44,9 @@ public class EditarPerfilActivity extends BaseActivity {
         editNovaSenha = findViewById(R.id.editNovaSenha);
         txtTipoSanguineo = findViewById(R.id.txtTipoSanguineo);
 
+        cpfDoador = prefsManager.getCpfLogado();
         Doador doador = prefsManager.getDoador();
-        if (doador == null) {
+        if (cpfDoador == null || doador == null) {
             Toast.makeText(this, R.string.tela_editar_perfil_erro_sem_dados, Toast.LENGTH_SHORT).show();
             finish();
             return;
@@ -59,11 +60,11 @@ public class EditarPerfilActivity extends BaseActivity {
                 ? tipo
                 : getString(R.string.tela_perfil_tipo_nao_informado));
 
-        findViewById(R.id.btnSalvar).setOnClickListener(v -> salvar(doador));
+        findViewById(R.id.btnSalvar).setOnClickListener(v -> salvar());
         findViewById(R.id.btnVoltar).setOnClickListener(v -> finish());
     }
 
-    private void salvar(Doador doador) {
+    private void salvar() {
         String nome = editNome.getText().toString().trim();
         String email = editEmail.getText().toString().trim();
         String senhaAtual = editSenhaAtual.getText().toString();
@@ -84,7 +85,7 @@ public class EditarPerfilActivity extends BaseActivity {
             return;
         }
 
-        // Senha em branco nos dois campos: nada a fazer, mantém a atual.
+        // Senha em branco nos dois campos: mantém a atual (campos vão nulos).
         boolean querTrocarSenha = !senhaAtual.isEmpty() || !novaSenha.isEmpty();
         if (querTrocarSenha) {
             if (senhaAtual.isEmpty() || novaSenha.isEmpty()) {
@@ -92,25 +93,27 @@ public class EditarPerfilActivity extends BaseActivity {
                 return;
             }
 
-            if (!senhaAtual.equals(doador.getSenha())) {
-                Toast.makeText(this, R.string.tela_editar_perfil_erro_senha_atual, Toast.LENGTH_SHORT).show();
-                return;
-            }
-
             if (!ValidacaoUtils.validarSenha(novaSenha)) {
                 Toast.makeText(this, R.string.tela_editar_perfil_erro_senha_curta, Toast.LENGTH_SHORT).show();
                 return;
             }
-
-            doador.setSenha(novaSenha);
         }
 
-        doador.setNome(nome);
-        doador.setEmail(email);
-        prefsManager.salvarDoador(doador);
-        prefsManager.atualizarEmailLogado(email);
+        String atual = querTrocarSenha ? senhaAtual : null;
+        String nova = querTrocarSenha ? novaSenha : null;
 
-        Toast.makeText(this, R.string.tela_editar_perfil_salvo, Toast.LENGTH_SHORT).show();
-        finish();
+        api.atualizarPerfil(cpfDoador, nome, email, atual, nova, new RepositoryCallback<Doador>() {
+            @Override
+            public void onSuccess(Doador doador) {
+                prefsManager.salvarDoador(doador);
+                Toast.makeText(EditarPerfilActivity.this, R.string.tela_editar_perfil_salvo, Toast.LENGTH_SHORT).show();
+                finish();
+            }
+
+            @Override
+            public void onError(String mensagem) {
+                Toast.makeText(EditarPerfilActivity.this, mensagem, Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 }

@@ -8,10 +8,11 @@ import android.widget.Spinner;
 import android.widget.Toast;
 
 import br.edu.unifaj.cc.mobile.logincomnavegacao.R;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.data.ApiRepository;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.data.RepositoryCallback;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.model.enums.TipoSanguineo;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.model.enums.FatorRh;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.model.user.Doador;
-import br.edu.unifaj.cc.mobile.logincomnavegacao.util.PrefsManager;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.util.ValidacaoUtils;
 
 public class CadastroActivity extends BaseActivity {
@@ -23,14 +24,12 @@ public class CadastroActivity extends BaseActivity {
     private Spinner spinnerTipoSanguineo;
     private Button btnCadastrar;
     private Button btnVoltar;
-    private PrefsManager prefsManager;
+    private final ApiRepository api = ApiRepository.getInstance();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_cadastro);
-
-        prefsManager = new PrefsManager(this);
 
         editNome = findViewById(R.id.editNome);
         editEmail = findViewById(R.id.editEmail);
@@ -83,7 +82,7 @@ public class CadastroActivity extends BaseActivity {
             return;
         }
 
-        // Parse do tipo sanguíneo (ex: "A+", "AB-", "O+", etc.)
+        // Garante que o rótulo do spinner é um tipo sanguíneo válido antes de enviar.
         TipoSanguineo tipoSanguineo = TipoSanguineo.fromValorCompleto(tipoCompleto);
         FatorRh fatorRh = FatorRh.fromValor(fatorRestante(tipoCompleto, tipoSanguineo));
 
@@ -92,13 +91,20 @@ public class CadastroActivity extends BaseActivity {
             return;
         }
 
-        Doador doador = new Doador(nome, email, senha, tipoSanguineo, fatorRh);
-        doador.setCpf(cpf);
-        prefsManager.salvarDoador(doador);
+        btnCadastrar.setEnabled(false);
+        api.cadastrar(nome, email, senha, cpf, tipoCompleto, new RepositoryCallback<Doador>() {
+            @Override
+            public void onSuccess(Doador doador) {
+                Toast.makeText(CadastroActivity.this, "Cadastro realizado com sucesso!", Toast.LENGTH_SHORT).show();
+                finish();
+            }
 
-        Toast.makeText(this, "Cadastro realizado com sucesso!", Toast.LENGTH_SHORT).show();
-
-        finish();
+            @Override
+            public void onError(String mensagem) {
+                btnCadastrar.setEnabled(true);
+                Toast.makeText(CadastroActivity.this, mensagem, Toast.LENGTH_SHORT).show();
+            }
+        });
     }
 
     /**

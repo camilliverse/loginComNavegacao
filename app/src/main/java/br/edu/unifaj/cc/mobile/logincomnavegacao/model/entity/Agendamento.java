@@ -9,6 +9,7 @@ public class Agendamento {
     private Hemocentro hemocentro;
     private String cpfDoador;
     private StatusAgendamento status;
+    private Integer quantidadeBolsas;
 
     public Agendamento() {
     }
@@ -68,6 +69,18 @@ public class Agendamento {
 
     public void setStatus(StatusAgendamento status) {
         this.status = status;
+    }
+
+    /**
+     * Quantidade de bolsas registradas para este agendamento, vinda da API.
+     * Null quando ainda não houve coleta.
+     */
+    public Integer getQuantidadeBolsas() {
+        return quantidadeBolsas;
+    }
+
+    public void setQuantidadeBolsas(Integer quantidadeBolsas) {
+        this.quantidadeBolsas = quantidadeBolsas;
     }
 
     public boolean isPendente() {

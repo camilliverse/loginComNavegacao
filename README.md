@@ -1,10 +1,14 @@
 # Controle de Doação de Sangue
 
-Aplicativo Android simples para agendamento e controle de doações de sangue.
+Aplicativo Android para agendamento e controle de doações de sangue.
 
 ## Descrição
 
-Aplicativo desenvolvido em Java para Android Studio que permite criar agendamentos, registrar coletas a partir deles e acompanhar o histórico local. Utiliza SharedPreferences para persistência de dados local, sem necessidade de banco de dados externo.
+Aplicativo desenvolvido em Java para Android Studio que permite criar
+agendamentos, registrar coletas a partir deles e acompanhar o histórico. Os
+dados ficam em um **backend REST** (Spring Boot + PostgreSQL, o repositório
+`ppi-backend`): o app consome a API via Retrofit e guarda localmente apenas a
+sessão e um cache do doador logado, para o topo da Home abrir na hora.
 
 ## Funcionalidades
 
@@ -21,8 +25,9 @@ Aplicativo desenvolvido em Java para Android Studio que permite criar agendament
 
 - **Linguagem**: Java
 - **IDE**: Android Studio
-- **Persistência**: SharedPreferences
-- **JSON**: Gson
+- **Rede**: Retrofit 2 + OkHttp (logging) + Gson
+- **Backend**: API REST Spring Boot (`ppi-backend`), persiste em PostgreSQL
+- **Sessão**: SharedPreferences (apenas CPF logado e cache do doador)
 - **Lista**: RecyclerView
 - **UI**: Material 3 (tokens de cor, tema claro/escuro automático)
 
@@ -79,36 +84,43 @@ Use `?attr/colorOnSurface`, `?attr/colorSurfaceContainerLow`,
 
 ```
 app/src/main/java/br/edu/unifaj/cc/mobile/logincomnavegacao/
+├── api/                   # Camada REST
+│   ├── ApiService.java            # Endpoints Retrofit
+│   ├── ApiClient.java             # Fábrica do Retrofit (base URL)
+│   ├── *Response.java             # DTOs de resposta
+│   └── *Request.java              # DTOs de requisição
+├── data/                  # Repositório
+│   ├── ApiRepository.java         # Fachada assíncrona da API + mapeamento
+│   ├── RepositoryCallback.java    # Callback (onSuccess/onError)
+│   └── Perfil.java                # Doador + nível
 ├── model/
 │   ├── entity/            # Hemocentro, Endereco, Agendamento, BolsaSangue
 │   ├── enums/             # TipoSanguineo, FatorRh, StatusAgendamento, StatusBolsa
 │   ├── user/              # User, Doador
 │   └── NivelDoador.java   # Nível do cartazinho (teto de 3 registros)
 ├── util/
-│   ├── PrefsManager.java         # Gerenciador de SharedPreferences
+│   ├── PrefsManager.java         # Sessão e cache do doador logado
 │   ├── AutoFitGridLayoutManager.java # Grade com colunas calculadas pela largura
 │   ├── InsetsUtils.java          # Margens das barras do sistema (edge-to-edge)
-│   ├── DateUtils.java
+│   ├── DateUtils.java            # Datas (BR) + conversão ISO do backend
 │   └── ValidacaoUtils.java
 ├── adapter/
 │   ├── MenuHomeAdapter.java                # Cards do menu principal
 │   ├── AgendamentoAdapter.java
 │   ├── AgendamentoParaRegistroAdapter.java
 │   └── BolsaSangueAdapter.java
-├── activity/
-│   ├── BaseActivity.java      # Base: edge-to-edge + insets
-│   ├── LoginActivity.java
-│   ├── CadastroActivity.java
-│   ├── HomeActivity.java
-│   ├── DoacaoActivity.java
-│   ├── RegistrarDoacaoActivity.java
-│   ├── AgendamentoActivity.java
-│   ├── HistoricoActivity.java
-│   ├── ListaAgendamentosActivity.java
-│   ├── PerfilActivity.java
-│   └── EditarPerfilActivity.java
-└── dao/
-    └── HemocentroDAO.java
+└── activity/
+    ├── BaseActivity.java      # Base: edge-to-edge + insets
+    ├── LoginActivity.java
+    ├── CadastroActivity.java
+    ├── HomeActivity.java
+    ├── DoacaoActivity.java
+    ├── RegistrarDoacaoActivity.java
+    ├── AgendamentoActivity.java
+    ├── HistoricoActivity.java
+    ├── ListaAgendamentosActivity.java
+    ├── PerfilActivity.java
+    └── EditarPerfilActivity.java
 ```
 
 Os testes unitários estão em:
@@ -139,10 +151,30 @@ app/src/test/java/br/edu/unifaj/cc/mobile/logincomnavegacao/
 
 ## Como Executar
 
-1. Clone o repositório
+O app depende do backend REST. Suba-o primeiro (ver `ppi-backend/README.md`):
+
+```bash
+cd ppi-backend
+sudo docker compose up -d
+./gradlew bootRun        # backend em http://localhost:8080
+```
+
+Depois:
+
+1. Clone este repositório
 2. Abra no Android Studio
 3. Aguarde a sincronização do Gradle
 4. Execute no emulador ou dispositivo
+
+### Base URL da API
+
+Definida em `api/ApiClient.java` (`BASE_URL`):
+
+- **Emulador**: `http://10.0.2.2:8080/` (10.0.2.2 é o `localhost` da máquina host)
+- **Aparelho físico**: troque pelo IP da máquina na mesma rede (ex.: `http://192.168.1.10:8080/`)
+
+O manifesto já declara `INTERNET` e `usesCleartextTraffic` (HTTP em
+desenvolvimento).
 
 ### Gerar APK
 
@@ -160,65 +192,40 @@ app/src/test/java/br/edu/unifaj/cc/mobile/logincomnavegacao/
 
 ## Dados Armazenados
 
-Os dados são armazenados localmente no dispositivo, em SharedPreferences, no formato JSON. O arquivo chama-se `PrefDoacaoSangue`.
+Os dados de negócio (doador, agendamentos, bolsas) ficam no **backend**
+(PostgreSQL). No aparelho, o `PrefDoacaoSangue` (SharedPreferences) guarda apenas
+a sessão e um cache do doador logado:
 
 | Chave | Conteúdo |
 |-------|----------|
-| `doador` | Doador cadastrado no aparelho |
-| `bolsas_sangue` | Lotes registrados a partir de agendamentos |
-| `agendamentos` | Agendamentos do doador |
-| `logged_email` | Marcador de sessão do login atual |
+| `doador_cache` | Cópia do doador logado, para a Home abrir sem esperar a rede |
+| `logged_cpf` | CPF da sessão atual (marcador de login) |
 
-### Doador (`doador`)
+A **senha nunca é gravada** no aparelho: o login envia e-mail e senha para a API
+e o backend devolve só os dados públicos do doador (`DoadorResponse`, sem senha).
 
-```json
-{
-  "nome": "João Silva",
-  "email": "joao@email.com",
-  "senha": "123456",
-  "cpf": "12345678909",
-  "tipoSanguineo": "O",
-  "fatorRh": "POSITIVO"
-}
-```
+### Mapeamento REST → modelo
 
-### Agendamento (`agendamentos`)
+| Tela / ação | Endpoint |
+|-------------|----------|
+| Login | `POST /api/doadores/login` |
+| Cadastro | `POST /api/doadores` |
+| Home / Perfil | `GET /api/doadores/{cpf}` |
+| Editar perfil | `PUT /api/doadores/{cpf}` |
+| Agendar | `GET /api/hemocentros` + `POST /api/agendamentos?cpf=` |
+| Meus agendamentos | `GET /api/agendamentos?cpf=` + `POST /api/agendamentos/{id}/cancelar?cpf=` |
+| Registrar coleta (lista) | `GET /api/agendamentos/para-registro?cpf=` |
+| Registrar coleta (salvar) | `POST /api/bolsas-sangue/agendamentos/{id}/coletas?cpf=` |
+| Histórico | `GET /api/bolsas-sangue?cpf=` |
 
-```json
-{
-  "id": "a3f7d2c4-1b5e-4a9c-8f2d-6e5b4c3a2910",
-  "data": "30/12/2025",
-  "hora": "09:30",
-  "hemocentro": {
-    "id": "HEMO-001",
-    "nome": "Hemocentro Central de São Paulo"
-  },
-  "cpfDoador": "12345678909",
-  "status": "PENDENTE"
-}
-```
-
-### Lote registrado (`bolsas_sangue`)
-
-```json
-{
-  "codigo": "BS-9F3A2C1D",
-  "tipoSanguineo": "O",
-  "fatorRh": "POSITIVO",
-  "dataColeta": "30/12/2025",
-  "dataValidade": "10/02/2026",
-  "volumeMl": 450,
-  "quantidade": 2,
-  "status": "DISPONIVEL",
-  "agendamentoId": "a3f7d2c4-1b5e-4a9c-8f2d-6e5b4c3a2910"
-}
-```
-
-A senha é guardada localmente em texto puro. Ela não é enviada para backup:
-`backup_rules.xml` e `data_extraction_rules.xml` excluem
-`PrefDoacaoSangue.xml` do backup em nuvem e da transferência entre aparelhos.
+As classes de `api/*Response` espelham os DTOs do backend; `data/ApiRepository`
+converte essas respostas nos modelos do app (`Agendamento`, `BolsaSangue`, ...)
+e formata datas ISO (`2025-12-30`) para o padrão da tela (`30/12/2025`).
 
 ## Regras de Negócio
+
+As regras abaixo são aplicadas em duas camadas: validação rápida no app e
+validação definitiva no backend (que é a fonte da verdade).
 
 - Campos vazios não são permitidos em nenhuma tela.
 - O email precisa ter formato válido; a senha precisa ter ao menos 6 caracteres.
@@ -229,7 +236,7 @@ A senha é guardada localmente em texto puro. Ela não é enviada para backup:
 - Cada coleta usa volume de 200 a 470 ml e quantidade de 1 a 6 bolsas.
 - A validade do lote é a data da coleta mais 42 dias.
 - O nível do doador conta registros de coleta e trava em 3; o número de bolsas da sessão não muda o nível.
-- Trocar o email também atualiza o marcador da sessão ativa.
+- Trocar a senha exige a senha atual, conferida pelo backend.
 
 ## Descrição das Classes
 
@@ -237,11 +244,19 @@ A senha é guardada localmente em texto puro. Ela não é enviada para backup:
 
 - **User.java**: Classe abstrata com nome, email e senha
 - **Doador.java**: Estende `User` e adiciona CPF, tipo sanguíneo e fator Rh
-- **DateUtils.java**: Datas estritas em `dd/MM/yyyy`; texto inválido não gera data nem libera coleta
+- **DateUtils.java**: Datas estritas em `dd/MM/yyyy` + conversão de/para o ISO do backend
+
+### Rede / Dados
+
+- **api/ApiService.java**: Contrato Retrofit com os endpoints do backend
+- **api/ApiClient.java**: Fábrica do Retrofit (base URL e logging)
+- **api/*Response.java / *Request.java**: DTOs que espelham o backend
+- **data/ApiRepository.java**: Fachada assíncrona da API; converte DTOs nos modelos do app
+- **data/Perfil.java**: Doador + nível (registros, limite, percentual)
 
 ### Util
 
-- **PrefsManager.java**: Gerencia login/sessão, doador, agendamentos, bolsas e elegibilidade da coleta
+- **PrefsManager.java**: Sessão (CPF logado) e cache do doador; não guarda dados de negócio
 - **ValidacaoUtils.java**: Valida campos obrigatórios, email, CPF, senha, volume e quantidade
 
 ### Adapter
@@ -385,12 +400,16 @@ Os diagramas de classes do projeto estão disponíveis na pasta `diagramas/`:
 
 | Arquivo | Descrição |
 |--------|-----------|
-| `diagramas/classes-dominio.plantuml` | Diagrama do modelo de domínio (PlantUML) |
+| `diagramas/classes-dominio.plantuml` | Diagrama do modelo de domínio do app (PlantUML) |
 | `diagramas/diagrama-doacaoSangue.png` | Diagrama visual em PNG |
 
 ![Diagrama](diagramas/diagrama-doacaoSangue.png)
 
-### Estrutura do Modelo de Domínio
+> O **diagrama completo do domínio** (com mais de 10 classes de negócio, herança
+> `Pessoa` → `Doador`, estoque, triagem e notificações) está no backend, em
+> `ppi-backend/diagramas/classes-dominio.puml` (e `.png`).
+
+### Estrutura do Modelo de Domínio (app)
 
 ```
 model/

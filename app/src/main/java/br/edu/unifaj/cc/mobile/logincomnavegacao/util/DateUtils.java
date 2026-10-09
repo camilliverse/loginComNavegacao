@@ -38,6 +38,46 @@ public class DateUtils {
         }
     }
     
+    /**
+     * Converte a data ISO do backend ("2025-12-30") para o formato da tela
+     * ("30/12/2025"). Texto fora do padrão volta como veio.
+     */
+    public static String isoParaBr(String iso) {
+        if (iso == null || iso.length() < 10) {
+            return iso == null ? "" : iso;
+        }
+        String[] partes = iso.substring(0, 10).split("-");
+        if (partes.length != 3) {
+            return iso;
+        }
+        return partes[2] + "/" + partes[1] + "/" + partes[0];
+    }
+
+    /**
+     * Converte a hora ISO do backend ("09:30:00") para "09:30".
+     */
+    public static String horaParaBr(String isoHora) {
+        if (isoHora == null || isoHora.isEmpty()) {
+            return "";
+        }
+        return isoHora.length() >= 5 ? isoHora.substring(0, 5) : isoHora;
+    }
+
+    /**
+     * Converte a data da tela ("30/12/2025") para o formato ISO do backend
+     * ("2025-12-30"). Texto inválido volta como veio.
+     */
+    public static String brParaIso(String br) {
+        if (br == null || br.length() < 10) {
+            return br == null ? "" : br;
+        }
+        String[] partes = br.split("/");
+        if (partes.length != 3) {
+            return br;
+        }
+        return partes[2] + "-" + partes[1] + "-" + partes[0];
+    }
+
     public static String somarDias(String data, int dias) {
         Date d = parseData(data);
         if (d == null) return "";

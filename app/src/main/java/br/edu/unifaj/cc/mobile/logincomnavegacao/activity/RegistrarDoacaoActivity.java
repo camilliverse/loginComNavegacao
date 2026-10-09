@@ -10,9 +10,10 @@ import android.widget.Toast;
 import java.util.List;
 
 import br.edu.unifaj.cc.mobile.logincomnavegacao.R;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.data.ApiRepository;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.data.RepositoryCallback;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.model.entity.Agendamento;
-import br.edu.unifaj.cc.mobile.logincomnavegacao.model.enums.FatorRh;
-import br.edu.unifaj.cc.mobile.logincomnavegacao.model.enums.TipoSanguineo;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.model.entity.BolsaSangue;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.model.user.Doador;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.util.PrefsManager;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.util.ValidacaoUtils;
@@ -42,7 +43,9 @@ public class RegistrarDoacaoActivity extends BaseActivity {
     private Button btnVoltar;
 
     private PrefsManager prefsManager;
+    private final ApiRepository api = ApiRepository.getInstance();
     private String agendamentoId;
+    private String cpfDoador;
     private Agendamento agendamento;
 
     @Override
@@ -57,6 +60,7 @@ public class RegistrarDoacaoActivity extends BaseActivity {
             return;
         }
 
+        cpfDoador = prefsManager.getCpfLogado();
         agendamentoId = getIntent().getStringExtra(EXTRA_AGENDAMENTO_ID);
         if (agendamentoId == null) {
             Toast.makeText(this, R.string.msg_agendamento_nao_encontrado, Toast.LENGTH_SHORT).show();
@@ -74,44 +78,47 @@ public class RegistrarDoacaoActivity extends BaseActivity {
         btnRegistrar = findViewById(R.id.btnRegistrar);
         btnVoltar = findViewById(R.id.btnVoltar);
 
-        if (!carregarAgendamento()) {
-            return;
-        }
-
-        preencherAgendamento();
+        btnRegistrar.setEnabled(false);
         restaurarCamposDigitados(savedInstanceState);
+        carregarAgendamento();
 
         btnRegistrar.setOnClickListener(v -> registrarColeta());
         btnVoltar.setOnClickListener(v -> finish());
     }
 
     /**
-     * Relê o agendamento do armazenamento. Os dados vêm sempre das preferências,
-     * nunca do Intent, para não confiar em valor transportado por outra tela.
+     * Busca o agendamento na lista de elegíveis do backend. A fonte da verdade é
+     * a API: além de preencher a tela, confirma que o agendamento ainda pode
+     * receber coleta (protege contra lista desatualizada e duplo toque).
      */
-    private boolean carregarAgendamento() {
-        List<Agendamento> todos = prefsManager.getAgendamentos();
-        for (Agendamento a : todos) {
-            if (agendamentoId.equals(a.getId())) {
-                agendamento = a;
-                break;
+    private void carregarAgendamento() {
+        api.listarParaRegistro(cpfDoador, new RepositoryCallback<List<Agendamento>>() {
+            @Override
+            public void onSuccess(List<Agendamento> elegiveis) {
+                for (Agendamento a : elegiveis) {
+                    if (agendamentoId.equals(a.getId())) {
+                        agendamento = a;
+                        break;
+                    }
+                }
+
+                if (agendamento == null) {
+                    Toast.makeText(RegistrarDoacaoActivity.this,
+                            R.string.msg_coleta_nao_elegivel, Toast.LENGTH_SHORT).show();
+                    finish();
+                    return;
+                }
+
+                preencherAgendamento();
+                btnRegistrar.setEnabled(true);
             }
-        }
 
-        if (agendamento == null) {
-            Toast.makeText(this, R.string.msg_agendamento_nao_encontrado, Toast.LENGTH_SHORT).show();
-            finish();
-            return false;
-        }
-
-        // Valida de novo: a lista da tela anterior pode ter ficado desatualizada.
-        if (!prefsManager.isElegivelParaRegistro(agendamentoId)) {
-            Toast.makeText(this, R.string.msg_coleta_nao_elegivel, Toast.LENGTH_SHORT).show();
-            finish();
-            return false;
-        }
-
-        return true;
+            @Override
+            public void onError(String mensagem) {
+                Toast.makeText(RegistrarDoacaoActivity.this, mensagem, Toast.LENGTH_SHORT).show();
+                finish();
+            }
+        });
     }
 
     private void preencherAgendamento() {
@@ -171,28 +178,27 @@ public class RegistrarDoacaoActivity extends BaseActivity {
         }
 
         Doador doador = prefsManager.getDoador();
-        TipoSanguineo tipoSanguineo = doador == null ? null : doador.getTipoSanguineo();
-        FatorRh fatorRh = doador == null ? null : doador.getFatorRh();
-        if (tipoSanguineo == null || fatorRh == null) {
+        if (doador == null || doador.getTipoSanguineo() == null || doador.getFatorRh() == null) {
             Toast.makeText(this, R.string.msg_doador_sem_tipo, Toast.LENGTH_SHORT).show();
             return;
         }
 
-        // Mensagem precisa para o motivo da recusa; a gravação decide de novo.
-        if (prefsManager.getBolsaPorAgendamento(agendamentoId) != null) {
-            Toast.makeText(this, R.string.msg_coleta_duplicada, Toast.LENGTH_SHORT).show();
-            finish();
-            return;
-        }
+        btnRegistrar.setEnabled(false);
+        api.registrarColeta(cpfDoador, Long.parseLong(agendamentoId), volumeMl, quantidade,
+                new RepositoryCallback<BolsaSangue>() {
+                    @Override
+                    public void onSuccess(BolsaSangue bolsa) {
+                        Toast.makeText(RegistrarDoacaoActivity.this,
+                                R.string.msg_coleta_registrada, Toast.LENGTH_SHORT).show();
+                        finish();
+                    }
 
-        if (!prefsManager.registrarColeta(agendamentoId, tipoSanguineo, fatorRh, volumeMl, quantidade)) {
-            Toast.makeText(this, R.string.msg_coleta_nao_elegivel, Toast.LENGTH_SHORT).show();
-            finish();
-            return;
-        }
-
-        Toast.makeText(this, R.string.msg_coleta_registrada, Toast.LENGTH_SHORT).show();
-        finish();
+                    @Override
+                    public void onError(String mensagem) {
+                        btnRegistrar.setEnabled(true);
+                        Toast.makeText(RegistrarDoacaoActivity.this, mensagem, Toast.LENGTH_SHORT).show();
+                    }
+                });
     }
 
     private void irParaLogin() {

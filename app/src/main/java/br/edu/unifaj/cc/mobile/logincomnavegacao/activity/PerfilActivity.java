@@ -8,15 +8,17 @@ import android.widget.Toast;
 import com.google.android.material.progressindicator.LinearProgressIndicator;
 
 import br.edu.unifaj.cc.mobile.logincomnavegacao.R;
-import br.edu.unifaj.cc.mobile.logincomnavegacao.model.NivelDoador;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.data.ApiRepository;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.data.Perfil;
+import br.edu.unifaj.cc.mobile.logincomnavegacao.data.RepositoryCallback;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.model.user.Doador;
 import br.edu.unifaj.cc.mobile.logincomnavegacao.util.PrefsManager;
 
 /**
  * Tela de perfil, no estilo de um cartazinho de doador.
  *
- * Só mostra os dados de acesso do doador. Para alterar alguma coisa, a tela
- * delega para {@link EditarPerfilActivity}; como ela salva e finishes, o
+ * Os dados e o nível vêm da API (PerfilResponse). Para alterar alguma coisa, a
+ * tela delega para {@link EditarPerfilActivity}; como ela salva e finishes, o
  * onResume recarrega o cartão com os valores novos.
  */
 public class PerfilActivity extends BaseActivity {
@@ -31,6 +33,7 @@ public class PerfilActivity extends BaseActivity {
     private TextView txtNivelProgresso;
     private LinearProgressIndicator barNivel;
     private PrefsManager prefsManager;
+    private final ApiRepository api = ApiRepository.getInstance();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -57,17 +60,36 @@ public class PerfilActivity extends BaseActivity {
     @Override
     protected void onResume() {
         super.onResume();
-        mostrarCartao();
+        carregarPerfil();
     }
 
-    private void mostrarCartao() {
-        Doador doador = prefsManager.getDoador();
-        if (doador == null) {
+    private void carregarPerfil() {
+        String cpf = prefsManager.getCpfLogado();
+        if (cpf == null) {
             Toast.makeText(this, R.string.tela_editar_perfil_erro_sem_dados, Toast.LENGTH_SHORT).show();
             finish();
             return;
         }
 
+        api.carregarPerfil(cpf, new RepositoryCallback<Perfil>() {
+            @Override
+            public void onSuccess(Perfil perfil) {
+                if (isFinishing() || perfil.getDoador() == null) {
+                    return;
+                }
+                prefsManager.salvarDoador(perfil.getDoador());
+                mostrarCartao(perfil.getDoador());
+                mostrarNivel(perfil);
+            }
+
+            @Override
+            public void onError(String mensagem) {
+                Toast.makeText(PerfilActivity.this, mensagem, Toast.LENGTH_SHORT).show();
+            }
+        });
+    }
+
+    private void mostrarCartao(Doador doador) {
         txtIniciais.setText(iniciais(doador.getNome()));
 
         String nome = doador.getNome();
@@ -87,27 +109,21 @@ public class PerfilActivity extends BaseActivity {
         txtCpf.setText(cpf != null && !cpf.isEmpty()
                 ? cpf
                 : getString(R.string.tela_perfil_cpf_nao_informado));
-
-        mostrarNivel();
     }
 
     /**
-     * Enche a barra "Nível de doador" conforme os registros de coleta já
-     * gravados, chegando ao máximo em NivelDoador.LIMITE.
-     *
-     * Sem animação: mostrarCartao() roda a cada onResume, então uma barra que
-     * anima a cada retorno da tela de edição ficaria reiniciando sozinha.
+     * Enche a barra "Nível de doador" com o percentual calculado pelo backend.
+     * Sem animação: roda a cada onResume e uma barra animando reiniciaria sozinha.
      */
-    private void mostrarNivel() {
-        NivelDoador nivel = new NivelDoador(prefsManager.getBolsas().size());
-        barNivel.setProgressCompat(nivel.percentual(), false);
+    private void mostrarNivel(Perfil perfil) {
+        barNivel.setProgressCompat(perfil.getPercentual(), false);
 
-        if (nivel.isMaximo()) {
+        if (perfil.isNivelMaximo()) {
             txtNivelProgresso.setText(R.string.tela_perfil_nivel_maximo);
         } else {
             txtNivelProgresso.setText(getResources().getQuantityString(
                     R.plurals.tela_perfil_nivel_progresso,
-                    nivel.getRegistros(), nivel.getRegistros(), NivelDoador.LIMITE));
+                    perfil.getRegistros(), perfil.getRegistros(), perfil.getLimite()));
         }
     }
 
